@@ -1,0 +1,262 @@
+--CREATE DATABASE myFiles
+--GO
+-- 
+--Create table script
+USE myDataBaseFiles
+GO
+
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[tblBinaryFiles]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[tblBinaryFiles](
+	[ID] [int] IDENTITY(1,1) NOT NULL,
+	[File] [varchar](max) NOT NULL,
+	[Path] [varchar](max) NOT NULL,
+	[Ext] [varchar](50) NOT NULL,
+	[Size] [bigint] NOT NULL,
+	[Binary] [varbinary](max) NOT NULL,
+	[Created] [datetime] NOT NULL CONSTRAINT [DF_tblBinaryFiles_Created]  DEFAULT (getdate())
+) ON [PRIMARY]
+END
+GO
+-- Create storedProcedure script
+-- =============================================
+-- Author:		<Author,,Aitsalm said>
+-- Create date: <Create Date,,26-06-19>
+-- Description:	<Description,,Return the file name from a given location>
+-- =============================================
+
+/*
+
+DECLARE @VAL VARCHAR(MAX) 
+EXEC dbo.spGetDocumentName 'E:\myFile.pdf', @VAL OUTPUT
+PRINT @VAL
+
+*/
+CREATE PROCEDURE [dbo].[spGetDocumentName]
+	-- Add the parameters for the stored procedure here
+	 @FILE_PATH   VARCHAR(MAX)	
+	,@NAME        VARCHAR(MAX) OUTPUT
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+--DECLARE @FILE_PATH VARCHAR(MAX)
+DECLARE @FILE_LENGTH INT
+DECLARE @FILE_NAME VARCHAR(MAX)
+
+	
+	SET @FILE_LENGTH = LEN(@FILE_PATH)
+
+	WHILE (@FILE_LENGTH <> 0)
+	BEGIN
+		IF SUBSTRING(@FILE_PATH, @FILE_LENGTH, 1) = '\' 
+			BEGIN
+				SET @FILE_NAME = RIGHT(@FILE_PATH, LEN(@FILE_PATH) - @FILE_LENGTH)
+				BREAK
+			END
+	SET @FILE_LENGTH = @FILE_LENGTH - 1
+	END
+   
+	SET @NAME = @FILE_NAME
+
+	RETURN 
+
+END
+
+
+
+
+
+GO
+/****** Object:  StoredProcedure [dbo].[spGetDocumentNature]    Script Date: 05/20/2009 16:20:15 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+-- =============================================
+-- Author:		<Author,,Aitsalm said>
+-- Create date: <Create Date,,26-06-19>
+-- Description:	<Description,,Return the nature of the file from a given location>
+-- =============================================
+
+/*
+
+DECLARE @VAL VARCHAR(MAX) 
+EXEC dbo.spGetDocumentName 'E:\myFile.pdf', @VAL OUTPUT
+PRINT @VAL
+
+*/
+CREATE PROCEDURE [dbo].[spGetDocumentNature]
+	-- Add the parameters for the stored procedure here
+	 @FILE_PATH   VARCHAR(MAX)	
+	,@EXTN       VARCHAR(10) OUTPUT
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+--DECLARE @FILE_PATH VARCHAR(MAX)
+DECLARE @FILE_LENGTH INT
+DECLARE @FILE_NATURE VARCHAR(10)
+
+	
+	SET @FILE_LENGTH = LEN(@FILE_PATH)
+
+	WHILE (@FILE_LENGTH <> 0)
+	BEGIN
+		IF SUBSTRING(@FILE_PATH, @FILE_LENGTH, 1) = '.' 
+			BEGIN
+				SET @FILE_NATURE = RIGHT(@FILE_PATH, LEN(@FILE_PATH) - @FILE_LENGTH)
+				BREAK
+			END
+	SET @FILE_LENGTH = @FILE_LENGTH - 1
+	END
+    
+	SET @EXTN = @FILE_NATURE
+
+	RETURN 
+
+END
+
+
+
+
+
+GO
+/****** Object:  StoredProcedure [dbo].[spStoreBinaryFiles]    Script Date: 05/20/2009 16:20:15 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- =============================================
+-- Author:		<Author,,Aitsalm said>
+-- Create date: <Create Date,, >
+-- Description:	<Description,, Insert the Binary data >
+-- =============================================
+-- EXEC dbo.spStoreDocuments 'C:\eFaxFiles\eFaxPromo.pdf;D:\eFaxFiles\eFaxPromo.pdf;'
+CREATE PROCEDURE [dbo].[spStoreBinaryFiles]
+	-- Add the parameters for the stored procedure here
+ @FILE_PATH	VARCHAR(MAX)
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+	DECLARE @FILE_LENGTH  BIGINT
+	DECLARE @FILE_DATA    VARBINARY(MAX)
+	DECLARE @FILE_NAME	  VARCHAR(100)
+	DECLARE @DOCUMENT_NAME VARCHAR(100) 
+	DECLARE @DOCUMENT_NATURE VARCHAR(5)  
+
+	DECLARE @VAL1 VARCHAR(100)
+	DECLARE @VAL2 VARCHAR(100)
+
+DECLARE curDOCUMENTS CURSOR FOR SELECT *  FROM dbo.SPLIT ( ';', @FILE_PATH )
+OPEN curDOCUMENTS
+FETCH NEXT FROM curDOCUMENTS 
+INTO @VAL1,@VAL2
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+
+	IF OBJECT_ID('#ORStable') IS NULL 
+		BEGIN
+			-- Temporary stored into a hash table for avoid data error     
+			CREATE TABLE #ORStable (Length BIGINT, vDocument VARBINARY(MAX))
+			
+			DECLARE @SQL_QUERY	  NVARCHAR(1000)
+
+			SET @SQL_QUERY= '
+			INSERT INTO #ORStable
+			SELECT len(bulkcolumn), *
+			FROM OPENROWSET(BULK '''+@VAL2+''', SINGLE_BLOB) AS BinaryData'
+			exec SP_executesql @SQL_QUERY
+ 
+		END
+	
+		EXEC dbo.spGetDocumentNature @VAL2, @DOCUMENT_NATURE  OUTPUT
+		EXEC dbo.spGetDocumentName @VAL2, @DOCUMENT_NAME  OUTPUT
+        
+      SELECT TOP 1 @FILE_LENGTH = Length, @FILE_DATA = vDocument FROM #ORStable
+	  INSERT INTO dbo.tblBinaryFiles
+			(
+				 [File]
+				,[Path]	
+				,[Ext]
+				,[Size]
+				,[Binary]
+			)
+
+	  VALUES(
+				 @DOCUMENT_NAME
+				,@VAL2
+				,@DOCUMENT_NATURE
+				,@FILE_LENGTH
+				,@FILE_DATA
+			)
+     
+     DROP TABLE dbo.#ORStable
+
+  -- Get the next document.
+    FETCH NEXT FROM curDOCUMENTS 
+    INTO @VAL1,@VAL2
+
+END
+
+CLOSE curDOCUMENTS
+DEALLOCATE curDOCUMENTS
+ 
+
+END
+
+GO
+-- Create Function script
+
+CREATE FUNCTION [dbo].[SPLIT] 
+   (  @DELIMITER VARCHAR(5), 
+      @LIST      VARCHAR(MAX)
+   ) 
+   RETURNS @TABLEOFVALUES TABLE 
+      (  ROWID   SMALLINT IDENTITY(1,1), 
+         [VALUE] VARCHAR(MAX) 
+      ) 
+AS 
+   BEGIN
+    
+      DECLARE @LENSTRING INT 
+ 
+      WHILE LEN( @LIST ) > 0 
+         BEGIN 
+         
+            SELECT @LENSTRING = 
+               (CASE CHARINDEX( @DELIMITER, @LIST ) 
+                   WHEN 0 THEN LEN( @LIST ) 
+                   ELSE ( CHARINDEX( @DELIMITER, @LIST ) -1 )
+                END
+               ) 
+                                
+            INSERT INTO @TABLEOFVALUES 
+               SELECT SUBSTRING( @LIST, 1, @LENSTRING )
+                
+            SELECT @LIST = 
+               (CASE ( LEN( @LIST ) - @LENSTRING ) 
+                   WHEN 0 THEN '' 
+                   ELSE RIGHT( @LIST, LEN( @LIST ) - @LENSTRING - 1 ) 
+                END
+               ) 
+         END
+          
+      RETURN 
+      
+   END 
